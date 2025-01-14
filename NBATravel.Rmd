@@ -1,0 +1,289 @@
+---
+title: "Effect of Travel on Offensive Performance in the NBA"
+author: "Sarah C"
+date: "2024-07-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Packages
+```{r, message = FALSE}
+#install.packages("devtools")
+#devtools::install_github("josedv82/airball")
+#install.packages("airball")
+library(dplyr)
+library(tidyverse)
+library(airball)
+library(ggplot2)
+library(sjPlot)
+library(lme4)
+```
+
+## Games Data
+```{r}
+games <- read.csv("games.csv")
+
+games[games == "1610612737"] <- "Atlanta Hawks"
+games[games == "1610612738"] <- "Boston Celtics"
+games[games == "1610612751"] <- "Brooklyn Nets"
+games[games == "1610612766"] <- "Charlotte Hornets"
+games[games == "1610612741"] <- "Chicago Bulls"
+games[games == "1610612739"] <- "Cleveland Cavaliers"
+games[games == "1610612742"] <- "Dallas Mavericks"
+games[games == "1610612743"] <- "Denver Nuggets"
+games[games == "1610612765"] <- "Detroit Pistons"
+games[games == "1610612744"] <- "Golden State Warriors"
+games[games == "1610612745"] <- "Houston Rockets"
+games[games == "1610612754"] <- "Indiana Pacers"
+games[games == "1610612746"] <- "Los Angeles Clippers"
+games[games == "1610612747"] <- "Los Angeles Lakers"
+games[games == "1610612763"] <- "Memphis Grizzlies"
+games[games == "1610612748"] <- "Miami Heat"
+games[games == "1610612749"] <- "Milwaukee Bucks"
+games[games == "1610612750"] <- "Minnesota Timberwolves"
+games[games == "1610612740"] <- "New Orleans Pelicans"
+games[games == "1610612752"] <- "New York Knicks"
+games[games == "1610612760"] <- "Oklahoma City Thunder"
+games[games == "1610612753"] <- "Orlando Magic"
+games[games == "1610612755"] <- "Philadelphia 76ers"
+games[games == "1610612756"] <- "Phoenix Suns"
+games[games == "1610612757"] <- "Portland Trail Blazers"
+games[games == "1610612758"] <- "Sacramento Kings"
+games[games == "1610612759"] <- "San Antonio Spurs"
+games[games == "1610612761"] <- "Toronto Raptors"
+games[games == "1610612762"] <- "Utah Jazz"
+games[games == "1610612764"] <- "Washington Wizards"
+```
+The dataset contains all NBA games from the 2003 season to the 2022 season. I changed the team IDs to the name of the team using a kaggle dataset called games_details.csv to find which team ID matched with each team name.
+
+## Travel Data
+```{r}
+#Sys.setenv(VROOM_CONNECTION_SIZE = 131072 * 2)
+
+travel <- nba_travel(start_season = 2013, end_season = 2022) %>% ungroup()
+travel$Date <- as.character(travel$Date)
+```
+The NBA travel dataset contains data from the 2002 season to the first half of the 2022 season. I decided just to look at data from the past 10 full seasons so I set the start and end seasons to 2013 and 2022.
+
+## Home Game Travel Data
+```{r}
+travel_home <- travel %>% filter(Location == "Home")
+travel_home <- select(travel_home, c(Season, Phase, Date, Team, Opponent, Distance, Rest, `Shift (hrs)`))
+```
+I filtered out the travel dataset to only include the games labeled as home and selected only the rows that were of interest to me.
+
+
+## Away Game Travel Data
+```{r}
+travel_away <- travel %>% filter(Location == "Away")
+travel_away <- select(travel_away, c(Season, Phase, Date, Team, Opponent, Distance, Rest, `Shift (hrs)`))
+```
+I then filtered out the travel dataset to only include the games labeled as away and selected only the rows that were of interest.
+
+## Join
+```{r}
+nba_home <- left_join(travel_home, games, by=c('Date' = 'GAME_DATE_EST', 'Team' = 'HOME_TEAM_ID'))
+nba_away <- left_join(travel_away, games, by=c('Date' = 'GAME_DATE_EST', 'Team' = 'VISITOR_TEAM_ID'))
+```
+I left joined the datasets on date and team. Left joining resulted in two rows for each game one where each team was labeled team and opponent respectively and it was specified whether they were home or away.
+
+## Edit Dataset
+```{r}
+#Away
+nba_away <- nba_away %>% 
+  rename(
+    Rest_Days = Rest,
+    Shift = `Shift (hrs)`,
+    )
+
+nba_away <- select(nba_away, -c(GAME_ID, GAME_STATUS_TEXT, HOME_TEAM_ID, SEASON, TEAM_ID_home, TEAM_ID_away, HOME_TEAM_WINS))
+
+#Home
+nba_home <- nba_home %>% 
+  rename(
+    Rest_Days = Rest,
+    Shift = `Shift (hrs)`,
+    )
+
+nba_home <- select(nba_home, -c(GAME_ID, GAME_STATUS_TEXT, VISITOR_TEAM_ID, SEASON, TEAM_ID_home, TEAM_ID_away, HOME_TEAM_WINS))
+```
+
+## Models
+Models were created with distance, rest days, and time zone shift as the predictor variables and offensive statistics as the response variables. The response variables include points, field goal percentage, three point field goal percentage, free throw percentage, and assists.
+```{r}
+## Home Team
+#Points
+points_home1 <- lm(PTS_home ~ Distance, data = nba_home)
+points_home2 <- lm(PTS_home ~ Distance + Rest_Days, data = nba_home)
+points_home3 <- lm(PTS_home ~ Distance + Rest_Days + Shift, data = nba_home)
+points_home4 <- lm(PTS_home ~ Distance * Rest_Days, data = nba_home)
+points_home5 <- lm(PTS_home ~ Distance * Shift, data = nba_home)
+points_home6 <- lm(PTS_home ~ Rest_Days * Shift, data = nba_home)
+points_home7 <- lm(PTS_home ~ Distance * Rest_Days + Shift, data = nba_home)
+
+anova(points_home1, points_home2, points_home3, points_home4, points_home5, points_home6, points_home7)
+
+summary(points_home2)
+summary(points_home3)
+summary(points_home7)
+
+#Field Goal Percentage
+fg_home <- lm(FG_PCT_home ~ Distance + Rest_Days + Shift, data = nba_home)
+summary(fg_home)
+
+fg_home_int <- lm(FG_PCT_home ~ Distance * Rest_Days + Shift, data = nba_home)
+summary(fg_home_int)
+
+#Three Point Field Goal Percentage
+fg3_home <- lm(FG3_PCT_home ~ Distance + Rest_Days + Shift, data = nba_home)
+summary(fg3_home)
+
+fg3_home_int <- lm(FG3_PCT_home ~ Distance * Rest_Days + Shift, data = nba_home)
+summary(fg3_home_int)
+
+#Free Throw Percentage
+ft_home <- lm(FT_PCT_home ~ Distance+ Rest_Days + Shift, data = nba_home)
+summary(ft_home)
+
+ft_home_int <- lm(FT_PCT_home ~ Distance * Rest_Days + Shift, data = nba_home)
+summary(ft_home_int)
+
+#Assists
+ast_home <- lm(AST_home ~ Distance + Rest_Days + Shift, data = nba_home)
+summary(ast_home)
+
+ast_home_int <- lm(AST_home ~ Distance * Rest_Days + Shift, data = nba_home)
+summary(ast_home_int)
+
+#Mixed Model
+seasonlm_home <- lmer(PTS_home ~ Distance + Rest_Days + Shift + (1|Season), data = nba_home)
+summary(seasonlm_home)
+
+teamlm_home <- lmer(PTS_home ~ Distance + Rest_Days + Shift + (1|Team), data = nba_home)
+summary(teamlm_home)
+
+anova(seasonlm_home, teamlm_home)
+```
+I started off by creating multiple models predicting points by distance, rest days, and time zone shift. I tried different combinations, including some intereaction terms. After creating those, I used ANOVA to see if any models were better than the others. The second, third, and seventh model were all significant so I did a summary on those to get a better look at the models. Based on the summaries the third and seventh model were the best and points_home7 turned out to be slighly better. The summary shows that distance, rest days, shift, and the interaction of distance and rest days are all significant but the coefficients are very minimal. For example, for every unit increase in distance traveled, points are expected to go down by .00098 and the average total points scored is 107.1. The field goal percentage model and three point field goal percentage mode were better without the interaction term but the models and variables were not significant. The model for free throw percentage is significant and distance is also significant. However, the effect is minimal again as for every unit increase in distance, free throw percentage decreases by 0.000004772. The non interaction model is also better for assists and shows the model, distance, and shift are all statistically significant. Distance does not have a big effect but for every unit increase in the time zone shift, assists will decrease by 0.2368.  
+
+I also created linear mixed models to see if those fit the data better. I created one model with team as the random effect and another with season as the random effect. The small t values show that the models aren't great at predicting points. An ANOVA test and AIC values show the model with season as the random effect is slightly better. That means there is more variance between seasons than there is within teams.
+
+
+```{r}
+## Away Team
+#Points
+points_away1 <- lm(PTS_away ~ Distance + Rest_Days, data = nba_away)
+summary(points_away1)
+points_away2 <- lm(PTS_away ~ Distance + Rest_Days + Shift, data = nba_away)
+summary(points_away2)
+points_away3 <- lm(PTS_away ~ Distance * Rest_Days + Shift, data = nba_away)
+summary(points_away3)
+
+anova(points_away1, points_away2, points_away3)
+
+#Field Goal Percentage
+fg_away <- lm(FG_PCT_away ~ Distance + Rest_Days + Shift, data = nba_away)
+summary(fg_away)
+
+fg_away_int <- lm(FG_PCT_away ~ Distance * Rest_Days + Shift, data = nba_away)
+summary(fg_away_int)
+
+#Three Point Field Goal Percentage
+fg3_away <- lm(FG3_PCT_away ~ Distance + Rest_Days + Shift, data = nba_away)
+summary(fg3_away)
+
+fg3_away_int <- lm(FG3_PCT_away ~ Distance * Rest_Days + Shift, data = nba_away)
+summary(fg3_away_int)
+
+#Free Throw Percentage
+ft_away <- lm(FT_PCT_away ~ Distance + Rest_Days + Shift, data = nba_away)
+summary(ft_away)
+
+ft_away_int <- lm(FT_PCT_away ~ Distance * Rest_Days + Shift, data = nba_away)
+summary(ft_away_int)
+
+#Assists
+ast_away <- lm(AST_away ~ Distance + Rest_Days + Shift, data = nba_away)
+summary(ast_away)
+
+ast_away_int <- lm(AST_away ~ Distance * Rest_Days + Shift, data = nba_away)
+summary(ast_away_int)
+
+#Mixed Model
+seasonlm_away <- lmer(PTS_away ~ Distance + Rest_Days + Shift + (1|Season), data = nba_away)
+summary(seasonlm_away)
+
+teamlm_away <- lmer(PTS_away ~ Distance + Rest_Days + Shift + (1|Team), data = nba_away)
+summary(teamlm_away)
+
+anova(seasonlm_away, teamlm_away)
+```
+The process was repeated very similarly for the away team data. While trying to predict points, an ANOVA test was used to differentiate between three models. The test showed that they are all pretty similar but the second model that adds distance, rest days, and shift is the best. That model shows distance and rest days along with the model are all significant. The effect from distance is very minimal and for every unit increase in a days rest, points are expected to increase 0.1383. For field goal percentage the interaction model is better and shows shift and the interaction between distance and rest days are significant as well as the model as a whole. For three point field goals, shift is slightly significant but the model is not. Free throw percentage is best represented by an interaction model and the model and interaction between distance and rest days is significant. The non interaction model was better for assists and distance was slightly significant but the model was not.
+
+The mixed models were sligtly better for away than home. ANOVA once again shows that season better describes the variance in points than teams.
+
+## Visualizations
+```{r, warning = FALSE}
+plot_model(points_home7)
+plot_model(ast_away)
+
+ggplot(data = nba_away, mapping = aes(x = Distance, y = PTS_away)) +
+  geom_point() +
+  ggtitle("Points by Distance") +
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        axis.text=element_text(size=12), axis.title=element_text(size=14))
+
+ggplot(data = nba_away, mapping = aes(x = Distance, y = PTS_away)) +
+  geom_bin_2d() +
+  ggtitle("Distance Traveled and Points Scored by Visiting Team") + 
+  ylab("Points") +
+  theme(plot.title = element_text(size = 20, face = "bold")) +
+  theme(axis.text=element_text(size=12), axis.title=element_text(size=14), 
+        legend.title = element_text(size=14), legend.text = element_text(size=10))
+
+ggplot(data = nba_home, mapping = aes(x = Distance, y = PTS_home)) +
+  geom_point()+
+  ggtitle("Distance Traveled and Points Scored by Home Team")+ 
+  theme(plot.title = element_text(size = 15, face = "bold"), 
+        axis.text=element_text(size=12), axis.title=element_text(size=14))
+
+ggplot(data = nba_away, mapping = aes(x = Distance, y = PTS_home)) +
+  geom_bin_2d()+
+  ggtitle("Distance Traveled and Points Scored by Home Team")+ 
+  theme(plot.title = element_text(size = 15, face = "bold"), 
+        axis.text=element_text(size=12), axis.title=element_text(size=14),
+        legend.title = element_text(size=14), legend.text = element_text(size=10))
+
+ggplot(data = nba_away, mapping = aes(x = Distance, y = AST_away)) +
+  geom_point()+
+  ggtitle("Away Team Assists by Distance Traveled") + 
+  theme(plot.title = element_text(size = 15, face = "bold"), 
+        axis.text=element_text(size=12), axis.title=element_text(size=14))
+
+ggplot(data = nba_away, mapping = aes(x = Distance, y = FG_PCT_away)) +
+  geom_point()+
+  ggtitle("Away Team Field Goal Percentage by Distance Traveled")+ 
+  theme(plot.title = element_text(size = 15, face = "bold"), 
+        axis.text=element_text(size=12), axis.title=element_text(size=14))
+
+heatmap <- ggplot(nba_away, aes(x = Season, y = Team)) +
+  geom_tile(aes(fill = Distance), color = "white") +
+  scale_fill_gradient(
+    low = "white", high = "steelblue") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(
+    angle = 45, vjust = 1, hjust = 1))+
+  ggtitle("Distance Traveled by Team and Season")
+
+
+flights <- nba_travel(start_season = 2020, end_season = 2022) %>% filter(Phase == "RS")
+nba_travel_plot(data = flights,
+                season = 2021,
+                city_color = "white",
+                plot_background_fill = "black",
+                land_color = "gray")
+```
+The visuals backed up what the models were saying by not showing any significant effects. I also created some visuals to see what traveling is like in the NBA both by amount during each season and a flight map of a recent season.
